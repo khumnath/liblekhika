@@ -21,6 +21,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>
 #include <iostream>
 #include <sstream>
 #include <fstream>
+#include <cstring>
 #include <filesystem>
 #include <stdexcept>
 #include <algorithm>
@@ -186,10 +187,11 @@ public:
             "CREATE TABLE IF NOT EXISTS meta ("
             "key TEXT PRIMARY KEY, value TEXT);"
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('format_version', '1.0');"
-            "INSERT OR IGNORE INTO meta (key, value) VALUES ('engine', 'lekhika-core');"
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('Db', 'lekhika');"
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('language', 'ne');"
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('script', 'Devanagari');"
-            "INSERT OR IGNORE INTO meta (key, value) VALUES ('created_at', datetime('now'));";
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('created_at', strftime('%Y-%m-%d', 'now'));";
+
 
         char* errMsg = nullptr;
         if (sqlite3_exec(db_, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
@@ -227,7 +229,14 @@ std::map<std::string, std::string> DictionaryManager::getDatabaseInfo() {
         sqlite3_finalize(stmt);
     }
     
-    info["db_path"] = sqlite3_db_filename(pImpl->db_, "main");
+    // Get the full path and replace home directory with ~
+    std::string fullPath = sqlite3_db_filename(pImpl->db_, "main");
+    const char* homeEnv = getenv("HOME");
+    if (homeEnv && fullPath.rfind(homeEnv, 0) == 0) { // Check if path starts with homeEnv
+        info["db_path"] = "~" + fullPath.substr(strlen(homeEnv));
+    } else {
+        info["db_path"] = fullPath;
+    }
 
     if (sqlite3_prepare_v2(pImpl->db_, "SELECT key, value FROM meta;", -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
