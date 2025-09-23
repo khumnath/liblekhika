@@ -1,0 +1,40 @@
+name: Build and Test Lekhika
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake libsqlite3-dev libicu-dev
+
+    - name: Configure CMake
+      run: |
+        mkdir build
+        cd build
+        cmake ..
+
+    - name: Build with Make
+      run: |
+        cd build
+        make
+
+    - name: Run tests
+      run: |
+        echo "--- Testing library version command ---"
+        ./build/cli/lekhika-cli -test version
+        echo
+        echo "--- Testing transliterate command ---"
+        ./build/cli/lekhika-cli -test transliterate nepaal
+

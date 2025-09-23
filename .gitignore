@@ -1,0 +1,43 @@
+# ==================================
+#  CMake Build System
+# ==================================
+# Ignore the entire build output directory
+/build/
+
+# Ignore CMake generated cache and project files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+*.cbp
+
+# ==================================
+#  Qt Creator IDE
+# ==================================
+# Ignore user-specific Qt Creator project settings
+*.pro.user
+*.pro.user.*
+*.creator
+*.creator.user
+*.autosave
+CMakeLists.txt.user
+
+# ==================================
+#  Compiled Artifacts
+# ==================================
+# Ignore intermediate object files, libraries, and executables.
+*.o
+*.a
+*.so
+*.so.*
+lekhika-cli
+
+# ==================================
+#  Common Temporary Files
+# ==================================
+# Ignore temporary files from common editors (like Vim) and operating systems.
+*~
+*.swp
+.DS_Store

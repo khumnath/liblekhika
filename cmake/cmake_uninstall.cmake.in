@@ -1,0 +1,24 @@
+
+# Read the project-wide install manifest and remove all installed files.
+
+if(NOT EXISTS "@CMAKE_BINARY_DIR@/install_manifest.txt")
+  message(FATAL_ERROR "Cannot find install manifest: @CMAKE_BINARY_DIR@/install_manifest.txt. Please run 'make install' first.")
+endif()
+
+file(STRINGS "@CMAKE_BINARY_DIR@/install_manifest.txt" INSTALL_FILES)
+message(STATUS "Uninstalling files from manifest: @CMAKE_BINARY_DIR@/install_manifest.txt")
+foreach(FILE ${INSTALL_FILES})
+  message(STATUS "Removing: ${FILE}")
+  if(IS_SYMLINK "${FILE}" OR EXISTS "${FILE}")
+    execute_process(
+      COMMAND @CMAKE_COMMAND@ -E remove "${FILE}"
+      OUTPUT_VARIABLE RM_OUT
+      RESULT_VARIABLE RM_RET
+    )
+    if(NOT ${RM_RET} EQUAL 0)
+      message(WARNING "Could not remove file: ${FILE}")
+    endif()
+  else()
+    message(STATUS "File ${FILE} does not exist, skipping.")
+  endif()
+endforeach()
