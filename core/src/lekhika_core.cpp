@@ -429,16 +429,21 @@ public:
     bool enableSymbolsTransliteration_ = true;
     fs::path dataDir_;
 
+#include <filesystem>
+
     explicit Impl(const std::string& dataDir) {
         if (!dataDir.empty()) {
             dataDir_ = dataDir;
+        } else if (std::filesystem::exists("/usr/share/lekhika-core/")) {
+            dataDir_ = "/usr/share/lekhika-core/";
         } else {
-            // Default system-wide data directory
             dataDir_ = "/usr/local/share/lekhika-core/";
         }
+
         loadMappings();
         loadSpecialWords();
     }
+
 
     std::string readFileContent(const std::string& filename) {
         fs::path fullPath = dataDir_ / filename;

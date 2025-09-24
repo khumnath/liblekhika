@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     if (command == "--version" || command == "version") {
-        std::cout << "liblekhika version " << getLekhikaVersion() << std::endl;
+        std::cout << "liblekhika version " << LEKHIKA_VERSION << std::endl;
         return 0;
     }
 

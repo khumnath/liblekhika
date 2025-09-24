@@ -30,6 +30,7 @@ endif()
 # Library Target Definition 
 add_library(liblekhika SHARED
     src/lekhika_core.cpp
+    include/lekhika/lekhika_core.h
 )
 # Do not add the "lib" prefix to the library file name.
 set_target_properties(liblekhika PROPERTIES PREFIX "")
