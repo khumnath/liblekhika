@@ -1,9 +1,8 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <memory>
 #include <filesystem>
-#include <lekhika/lekhika_core.h>
+#include <liblekhika/lekhika_core.h>
 
 namespace fs = std::filesystem;
 

@@ -1,7 +1,9 @@
 
+
 # Lekhika Transliteration Engine & CLI Tool
 
-Lekhika is a versatile, high-performance C++ library for transliterating Indic scripts, with a primary focus on converting Latin (Roman) text to Devanagari. It is designed to be a completely independent core module that can be easily integrated into various input methods and applications.
+Lekhika is a versatile, high-performance C++ library for transliterating Indic scripts, with a primary focus on converting Latin (Roman) text to Devanagari.
+ It is designed to be a completely independent core module that can be easily integrated into various input methods and applications. It serves as the core transliteration engine for the [**fcitx5-lekhika**](https://github.com/khumnath/fcitx5-lekhika "null") input method for Linux.
 
 This project includes:
 
@@ -69,7 +71,7 @@ mkdir build && cd build
 
 ```
 
-cmake ..
+cmake -DCMAKE_INSTALL_PREFIX=/usr ..
 
 ```
 
@@ -95,7 +97,7 @@ You can test the command-line tool directly from the build directory without ins
 ```
 
 **5. Install the project system-wide:**
-This will install the library, headers, data files, and CLI tool to standard system locations (e.g., under `/usr/local`).
+This will install the library, headers, data files, and CLI tool to standard system locations (e.g., under `/usr`).
 
 
 
@@ -197,8 +199,9 @@ The library is designed to be easily consumed by other CMake projects.
 
 
 ```
-
-find_package(lekhika-core REQUIRED)
+find_package(ICU REQUIRED COMPONENTS uc i18n)
+find_package(SQLite3)
+find_package(liblekhika REQUIRED)
 
 ```
 
@@ -220,7 +223,7 @@ This automatically handles include directories, link libraries, and compile defi
 
 ```
 
-#include <lekhika/lekhika_core.h> #include <iostream>
+#include <liblekhika/lekhika_core.h> #include <iostream>
 
 int main() { // The transliterator will find its data files automatically from the install location. Transliteration tl; std::cout << tl.transliterate("merhaba dunya") << std::endl;
 
@@ -236,11 +239,15 @@ return 0;
 
 After running `sudo make install`, the project files are placed in standard system locations.
 
-* **Shared Library:** `/usr/local/lib/liblekhika.so`
-
-* **Header Files:** `/usr/local/include/lekhika/`
-
-* **System Data Files:** `/usr/local/share/lekhika-core/data/` (contains `mapping.toml`, etc.)
+| Installed Path                          | File(s) or Directory         | Description                                                                 |
+|----------------------------------------|------------------------------|-----------------------------------------------------------------------------|
+| `lib/`                                 | `liblekhika.so`              | Shared library binary for runtime linking                                  |
+| `include/liblekhika/`                  | `lekhika_core.h`             | Public header for API exposure                                             |
+| `share/liblekhika/`                    | `data/` contents             | Architecture-independent data files (e.g. templates, icons, metadata)      |
+| `lib/cmake/liblekhika/`                | `liblekhika-config.cmake`    | CMake config file for consumers to find and use the library                |
+| `lib/cmake/liblekhika/`                | `liblekhika-config-version.cmake` | Version file for compatibility checks                                 |
+| `lib/cmake/liblekhika/`                | `liblekhika-targets.cmake`   | Exported targets for CMake integration                                     |
+| `bin/`                                 | lekhika.cli | Runtime binaries          |
 
 * **User Dictionary:** ~/.local/share/lekhika-core/lekhikadict.akshardb (This is your personal dictionary, which is automatically created by the application on first use).
 

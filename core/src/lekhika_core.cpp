@@ -16,7 +16,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>
  *******************************************************************/
-#include "lekhika/lekhika_core.h"
+#include "liblekhika/lekhika_core.h"
 
 #include <iostream>
 #include <sstream>
@@ -24,7 +24,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
-#include <algorithm>
 
 // ICU includes for Unicode string handling and validation
 #include <unicode/unistr.h>
