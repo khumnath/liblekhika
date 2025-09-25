@@ -433,10 +433,10 @@ public:
     explicit Impl(const std::string& dataDir) {
         if (!dataDir.empty()) {
             dataDir_ = dataDir;
-        } else if (std::filesystem::exists("/usr/share/lekhika-core/")) {
-            dataDir_ = "/usr/share/lekhika-core/";
+        } else if (std::filesystem::exists("/usr/share/liblekhika/")) {
+            dataDir_ = "/usr/share/liblekhika/";
         } else {
-            dataDir_ = "/usr/local/share/lekhika-core/";
+            dataDir_ = "/usr/local/share/liblekhika/";
         }
 
         loadMappings();
