@@ -30,7 +30,7 @@ jobs:
         cd build
         make
 
-    - name: Run tests
+    - name: Run tests (local build)
       run: |
         echo "--- Testing library version command ---"
         ./build/cli/lekhika-cli -test version
@@ -38,3 +38,19 @@ jobs:
         echo "--- Testing transliterate command ---"
         ./build/cli/lekhika-cli -test transliterate nepaal
 
+    - name: Install systemwide
+      run: |
+        cd build
+        sudo make install
+
+    - name: Update library cache (if needed)
+      run: |
+        sudo ldconfig
+
+    - name: Run tests (systemwide install)
+      run: |
+        echo "--- Testing systemwide version command ---"
+        lekhika-cli  version
+        echo
+        echo "--- Testing systemwide transliterate command ---"
+        lekhika-cli transliterate nepaal
