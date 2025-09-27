@@ -33,22 +33,26 @@ jobs:
     - name: Run tests (local build)
       run: |
         echo "--- Locally testing library version command ---"
-        OUTPUT=$(./build/cli/lekhika-cli -test version 2>&1 || true)
+        CMD="./build/cli/lekhika-cli -test version"
+        echo "\$ $CMD"
+        OUTPUT=$($CMD 2>&1 || true)
         echo "$OUTPUT"
         if echo "$OUTPUT" | grep -q "Unknown command:"; then
           echo "❌ Local version test failed"
-          echo "fail" >> test_results.txt
+          echo "Local version test | $CMD" >> test_results.txt
         else
           echo "✅ Local version test passed"
         fi
 
         echo
         echo "--- Locally testing transliterate command ---"
-        OUTPUT=$(./build/cli/lekhika-cli -test transliterate nepaal 2>&1 || true)
+        CMD="./build/cli/lekhika-cli -test transliterate nepaal"
+        echo "\$ $CMD"
+        OUTPUT=$($CMD 2>&1 || true)
         echo "$OUTPUT"
         if echo "$OUTPUT" | grep -q "Unknown command:"; then
           echo "❌ Local transliterate test failed"
-          echo "fail" >> test_results.txt
+          echo "Local transliterate test | $CMD" >> test_results.txt
         else
           echo "✅ Local transliterate test passed"
         fi
@@ -65,22 +69,26 @@ jobs:
     - name: Run tests (systemwide install)
       run: |
         echo "--- Testing systemwide version command ---"
-        OUTPUT=$(lekhika-cli version 2>&1 || true)
+        CMD="lekhika-cli version"
+        echo "\$ $CMD"
+        OUTPUT=$($CMD 2>&1 || true)
         echo "$OUTPUT"
         if echo "$OUTPUT" | grep -q "Unknown command:"; then
           echo "❌ Systemwide version test failed"
-          echo "fail" >> test_results.txt
+          echo "Systemwide version test | $CMD" >> test_results.txt
         else
           echo "✅ Systemwide version test passed"
         fi
 
         echo
         echo "--- Testing systemwide transliterate command ---"
-        OUTPUT=$(lekhika-cli transliterate nepaal 2>&1 || true)
+        CMD="lekhika-cli transliterate nepaal"
+        echo "\$ $CMD"
+        OUTPUT=$($CMD 2>&1 || true)
         echo "$OUTPUT"
         if echo "$OUTPUT" | grep -q "Unknown command:"; then
           echo "❌ Systemwide transliterate test failed"
-          echo "fail" >> test_results.txt
+          echo "Systemwide transliterate test | $CMD" >> test_results.txt
         else
           echo "✅ Systemwide transliterate test passed"
         fi
@@ -92,7 +100,8 @@ jobs:
         echo "======================"
         if [ -f test_results.txt ]; then
           FAILS=$(wc -l < test_results.txt)
-          echo "❌ $FAILS test(s) failed"
+          echo "❌ $FAILS test(s) failed:"
+          cat test_results.txt
         else
           echo "✅ All tests passed!"
         fi
