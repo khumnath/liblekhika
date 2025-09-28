@@ -1,0 +1,62 @@
+--- Valid Words ---
+
+पानी
+पनि
+घर
+राम्रो
+विद्यालय
+संयुक्त
+विज्ञप्ति
+हाँस्नु
+संवाद
+अँध्यारो
+आज
+उसले
+एक
+समिती
+प्रविधि
+शान्ती
+
+--- Invalid Words ---
+
+# Single grapheme words (rejected by graphemeCount < 2)
+
+क
+आ
+
+# Non-Devanagari characters
+
+hello
+world123
+नेपाल-Nepal
+
+# Contains digits
+१२३
+शब्द१२३
+
+# Contains punctuation
+
+राम।
+प्रश्न?
+
+# Orphaned halant (starts with, follows vowel, or doubled)
+
+्काम
+आ्
+क्क्
+
+# Orphaned matra (starts with, follows halant, or doubled)
+
+ाघर
+क्ा
+किी
+
+# Orphaned anusvara/visarga/chandrabindu
+
+ंok
+क्ं
+
+# Leading or trailing joiners (ZWJ/ZWNJ)
+
+‍शब्द
+शब्द‍
