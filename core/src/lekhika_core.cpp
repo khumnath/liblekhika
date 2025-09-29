@@ -97,21 +97,23 @@ int graphemeCount(const icu::UnicodeString &u) {
 // ----------------- Validation -----------------
 bool isValidDevanagariWord(const icu::UnicodeString &u) {
     if (u.isEmpty()) return false;
-    if (graphemeCount(u) < 2) return false; // minimum 2 graphemes
+    if (graphemeCount(u) < 2) return false; // A word should have a minimum of 2 graphemes.
 
     bool lastWasConsonant = false;
     bool lastWasHalant = false;
     bool lastWasVowelSign = false;
     bool lastWasIndependentVowel = false;
-    bool lastWasValidChar = false; // for ZWJ/ZWNJ
+    bool lastWasValidChar = false; // Used to detect invalid leading ZWJ/ZWNJ
+
+    UChar32 prevChar = 0; // Track previous character for final validation
 
     for (int32_t i = 0; i < u.length();) {
         UChar32 c = u.char32At(i);
 
-        // Reject any character outside allowed Devanagari blocks
+        // Reject any character outside the allowed Devanagari blocks.
         if (!isAllowedDevanagariChar(c)) return false;
 
-        // Reject digits or punctuation even if inside Devanagari block
+        // Reject digits or punctuation.
         if (isDigit(c) || isDandaOrPunctuation(c)) return false;
 
         if (isDevanagariConsonant(c)) {
@@ -122,7 +124,8 @@ bool isValidDevanagariWord(const icu::UnicodeString &u) {
             lastWasValidChar = true;
         }
         else if (isHalant(c)) {
-            if (!lastWasConsonant) return false; // orphan halant
+            // Halant must follow a consonant.
+            if (!lastWasConsonant) return false;
             lastWasHalant = true;
             lastWasConsonant = false;
             lastWasVowelSign = false;
@@ -130,7 +133,8 @@ bool isValidDevanagariWord(const icu::UnicodeString &u) {
             lastWasValidChar = true;
         }
         else if (isDependentVowelSign(c)) {
-            if (!lastWasConsonant || lastWasHalant || lastWasVowelSign) return false; // orphan vowel
+            // Vowel sign must follow a consonant not modified by halant or another matra.
+            if (!lastWasConsonant || lastWasHalant || lastWasVowelSign) return false;
             lastWasVowelSign = true;
             lastWasConsonant = false;
             lastWasHalant = false;
@@ -145,7 +149,8 @@ bool isValidDevanagariWord(const icu::UnicodeString &u) {
             lastWasValidChar = true;
         }
         else if (isAnusvaraVisargaChandrabindu(c)) {
-            if (!(lastWasConsonant || lastWasVowelSign || lastWasIndependentVowel)) return false; // orphan
+            // These must follow a vowel, consonant, or matra.
+            if (!(lastWasConsonant || lastWasVowelSign || lastWasIndependentVowel)) return false;
             lastWasConsonant = false;
             lastWasHalant = false;
             lastWasVowelSign = false;
@@ -153,16 +158,32 @@ bool isValidDevanagariWord(const icu::UnicodeString &u) {
             lastWasValidChar = true;
         }
         else if (isZWJorZWNJ(c)) {
-            if (!lastWasValidChar) return false; // orphan joiner
-            // ZWJ/ZWNJ does not reset lastWas* flags
+            // ZWJ/ZWNJ must not be the first character.
+            if (!lastWasValidChar) return false;
+
+            // ZWJ after halant is valid (used for ligature formation).
+            // Do not reset state flags.
             lastWasValidChar = true;
         }
 
+        prevChar = c;
         i += U16_LENGTH(c);
     }
 
-    // Only reject if last character is orphan ZWJ/ZWNJ
-    if (!lastWasValidChar) return false;
+    // Final character validation.
+    if (u.length() > 0) {
+        int32_t lastCharIndex = u.length();
+        U16_BACK_1(u.getBuffer(), 0, lastCharIndex);
+        UChar32 lastChar = u.char32At(lastCharIndex);
+
+        // Reject if word ends in ZWJ or ZWNJ.
+        if (isZWJorZWNJ(lastChar)) return false;
+
+        // Allow trailing halant only if preceded by a consonant.
+        if (isHalant(lastChar)) {
+            if (!isDevanagariConsonant(prevChar)) return false;
+        }
+    }
 
     return true;
 }
