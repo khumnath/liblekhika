@@ -30,6 +30,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>
 #include <unicode/brkiter.h>
 #include <unicode/locid.h>
 #include <unicode/utypes.h>
+#include <unicode/uchar.h>
 
 #ifdef HAVE_SQLITE3
 #include <sqlite3.h>
@@ -46,87 +47,152 @@ std::string getLekhikaVersion() {
     return LEKHIKA_VERSION;
 }
 
-// Helper functions for character properties
-inline bool isDependentVowelSign(UChar32 c) { return c >= 0x093E && c <= 0x094C; }
-inline bool isDevanagariDigit(UChar32 c) { return c >= 0x0966 && c <= 0x096F; }
-
-// Main validation logic using ICU for proper grapheme cluster iteration
-bool isValidDevanagariWord(const U_ICU_NAMESPACE::UnicodeString &u) {
-    if (u.isEmpty()) return false;
-
-    UErrorCode status = U_ZERO_ERROR;
-    std::unique_ptr<icu::BreakIterator> bi(
-        icu::BreakIterator::createCharacterInstance(icu::Locale::getUS(), status)
-        );
-    if (U_FAILURE(status)) return false;
-
-    bi->setText(u);
-
-    int32_t clusterCount = 0;
-    bool firstClusterChecked = false;
-
-    for (int32_t start = bi->first(), end = bi->next();
-         end != icu::BreakIterator::DONE;
-         start = end, end = bi->next())
-    {
-        clusterCount++;
-        icu::UnicodeString cluster = u.tempSubStringBetween(start, end);
-        if (cluster.isEmpty()) continue;
-        UChar32 firstCharOfCluster = cluster.char32At(0);
-
-        // Reject non-Devanagari, digits, or joiners.
-        if (isDevanagariDigit(firstCharOfCluster) || firstCharOfCluster == 0x200C || firstCharOfCluster == 0x200D) return false;
-        if (firstCharOfCluster < 0x0900 || firstCharOfCluster > 0x097F) return false;
-
-        bool isIndependentVowel = (firstCharOfCluster >= 0x0904 && firstCharOfCluster <= 0x0914);
-
-        if (!firstClusterChecked) {
-            firstClusterChecked = true;
-            bool isConsonant = (firstCharOfCluster >= 0x0915 && firstCharOfCluster <= 0x0939);
-            // The first character of a word must be a consonant, an independent vowel, or Om.
-            if (!(isIndependentVowel || isConsonant) || isDependentVowelSign(firstCharOfCluster))
-                return false;
-        } else {
-            // Any subsequent cluster cannot start with an independent vowel.
-            if (isIndependentVowel) return false;
-        }
-
-        // Check for orphaned modifiers and invalid sequences within the cluster
-        bool hasBase = false;
-        UChar32 prevChar = 0; // Keep track of the previous character
-        for (int32_t i = 0; i < cluster.length(); ) {
-            UChar32 c = cluster.char32At(i);
-            i += U16_LENGTH(c);
-            
-            bool isCurrentCharIndependentVowel = (c >= 0x0904 && c <= 0x0914);
-
-            // RULE: An independent vowel cannot follow a Halant.
-            if (prevChar == 0x094D && isCurrentCharIndependentVowel) {
-                return false;
-            }
-
-            if ((c >= 0x0904 && c <= 0x0914) || (c >= 0x0915 && c <= 0x0939) || c == 0x0950) {
-                hasBase = true;
-            }
-            // RULE: An orphaned dependent vowel sign (matra) is invalid.
-            if (isDependentVowelSign(c) && !hasBase) return false;
-
-            prevChar = c;
-        }
-    }
-
-    // A word should not end with a Halant/Virama
-    if (!u.isEmpty() && u.char32At(u.length() - 1) == 0x094D) {
-        return false;
-    }
-
-    return clusterCount > 0;
+// ----------------- Character classification -----------------
+inline bool isDevanagariConsonant(UChar32 c) {
+    return (c >= 0x0915 && c <= 0x0939) || (c >= 0x0958 && c <= 0x095F);
 }
 
-// Overload for std::string for convenience
-bool isValidDevanagariWord(const std::string& s) {
+inline bool isHalant(UChar32 c) { return c == 0x094D; }
+
+inline bool isDependentVowelSign(UChar32 c) {
+    return (c >= 0x093E && c <= 0x094C); // Only true matras
+}
+
+inline bool isIndependentVowel(UChar32 c) {
+    return (c >= 0x0904 && c <= 0x0914);
+}
+inline bool isAnusvaraVisargaChandrabindu(UChar32 c) {
+    return c == 0x0902 || c == 0x0903 || c == 0x0901;
+}
+
+inline bool isZWJorZWNJ(UChar32 c) { return c == 0x200C || c == 0x200D; }
+
+inline bool isDigit(UChar32 c) { return (c >= 0x0966 && c <= 0x096F); }
+
+inline bool isDandaOrPunctuation(UChar32 c) { return c == 0x0964 || c == 0x0965 || u_ispunct(c); }
+
+inline bool isAllowedDevanagariChar(UChar32 c) {
+    return (c >= 0x0900 && c <= 0x097F)       // Devanagari
+           || (c >= 0xA8E0 && c <= 0xA8FF)    // Devanagari Extended
+           || isZWJorZWNJ(c);
+}
+
+// ----------------- Grapheme counting -----------------
+//rejects single-grapheme tokens as they are not considered valid dictionary words in this system
+int graphemeCount(const icu::UnicodeString &u) {
+    UErrorCode status = U_ZERO_ERROR;
+    std::unique_ptr<icu::BreakIterator> it(
+        icu::BreakIterator::createCharacterInstance(icu::Locale::getDefault(), status)
+        );
+    if (U_FAILURE(status)) return u.length();
+    it->setText(u);
+
+    int count = 0;
+    for (int32_t p = it->first(); p != icu::BreakIterator::DONE; p = it->next()) {
+        count++;
+    }
+    return count - 1; // remove extra boundary at end
+}
+
+// ----------------- Validation -----------------
+bool isValidDevanagariWord(const icu::UnicodeString &u) {
+    if (u.isEmpty()) return false;
+    if (graphemeCount(u) < 2) return false; // A word should have a minimum of 2 graphemes.
+
+    bool lastWasConsonant = false;
+    bool lastWasHalant = false;
+    bool lastWasVowelSign = false;
+    bool lastWasIndependentVowel = false;
+    bool lastWasValidChar = false; // Used to detect invalid leading ZWJ/ZWNJ
+
+    UChar32 prevChar = 0; // Track previous character for final validation
+
+    for (int32_t i = 0; i < u.length();) {
+        UChar32 c = u.char32At(i);
+
+        // Reject any character outside the allowed Devanagari blocks.
+        if (!isAllowedDevanagariChar(c)) return false;
+
+        // Reject digits or punctuation.
+        if (isDigit(c) || isDandaOrPunctuation(c)) return false;
+
+        if (isDevanagariConsonant(c)) {
+            lastWasConsonant = true;
+            lastWasHalant = false;
+            lastWasVowelSign = false;
+            lastWasIndependentVowel = false;
+            lastWasValidChar = true;
+        }
+        else if (isHalant(c)) {
+            // Halant must follow a consonant.
+            if (!lastWasConsonant) return false;
+            lastWasHalant = true;
+            lastWasConsonant = false;
+            lastWasVowelSign = false;
+            lastWasIndependentVowel = false;
+            lastWasValidChar = true;
+        }
+        else if (isDependentVowelSign(c)) {
+            // Vowel sign must follow a consonant not modified by halant or another matra.
+            if (!lastWasConsonant || lastWasHalant || lastWasVowelSign) return false;
+            lastWasVowelSign = true;
+            lastWasConsonant = false;
+            lastWasHalant = false;
+            lastWasIndependentVowel = false;
+            lastWasValidChar = true;
+        }
+        else if (isIndependentVowel(c)) {
+            lastWasIndependentVowel = true;
+            lastWasConsonant = false;
+            lastWasHalant = false;
+            lastWasVowelSign = false;
+            lastWasValidChar = true;
+        }
+        else if (isAnusvaraVisargaChandrabindu(c)) {
+            // These must follow a vowel, consonant, or matra.
+            if (!(lastWasConsonant || lastWasVowelSign || lastWasIndependentVowel)) return false;
+            lastWasConsonant = false;
+            lastWasHalant = false;
+            lastWasVowelSign = false;
+            lastWasIndependentVowel = false;
+            lastWasValidChar = true;
+        }
+        else if (isZWJorZWNJ(c)) {
+            // ZWJ/ZWNJ must not be the first character.
+            if (!lastWasValidChar) return false;
+
+            // ZWJ after halant is valid (used for ligature formation).
+            // Do not reset state flags.
+            lastWasValidChar = true;
+        }
+
+        prevChar = c;
+        i += U16_LENGTH(c);
+    }
+
+    // Final character validation.
+    if (u.length() > 0) {
+        int32_t lastCharIndex = u.length();
+        U16_BACK_1(u.getBuffer(), 0, lastCharIndex);
+        UChar32 lastChar = u.char32At(lastCharIndex);
+
+        // Reject if word ends in ZWJ or ZWNJ.
+        if (isZWJorZWNJ(lastChar)) return false;
+
+        // Allow trailing halant only if preceded by a consonant.
+        if (isHalant(lastChar)) {
+            if (!isDevanagariConsonant(prevChar)) return false;
+        }
+    }
+
+    return true;
+}
+
+// ----------------- Overload for std::string -----------------
+bool isValidDevanagariWord(const std::string &s) {
     return isValidDevanagariWord(icu::UnicodeString::fromUTF8(s));
 }
+
 
 
 #ifdef HAVE_SQLITE3
@@ -207,12 +273,15 @@ DictionaryManager::DictionaryManager(const std::string& dbPath) : pImpl(std::mak
 DictionaryManager::~DictionaryManager() = default;
 
 void DictionaryManager::reset() {
-    if (!pImpl->db_) return;
+    if (!pImpl->db_) {
+        throw std::runtime_error("Cannot reset: Database is not connected.");
+    }
     const char* sql = "DELETE FROM words;";
     char* errMsg = nullptr;
     if (sqlite3_exec(pImpl->db_, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
-        std::cerr << "Failed to reset dictionary: " << sqlite3_errmsg(pImpl->db_) << std::endl;
+        std::string error_message = "Failed to reset dictionary: " + std::string(errMsg);
         sqlite3_free(errMsg);
+        throw std::runtime_error(error_message);
     }
 }
 
@@ -277,7 +346,9 @@ long DictionaryManager::learnFromFile(const std::string& filePath) {
 
 
 void DictionaryManager::addWord(const std::string &word) {
-    if (!pImpl->db_) return;
+    if (!pImpl->db_) {
+        throw std::runtime_error("Cannot add word: Database is not connected.");
+    }
     sqlite3_stmt *stmt;
     const char *sql = "INSERT INTO words (word) VALUES (?) "
                       "ON CONFLICT(word) DO UPDATE SET frequency = frequency + 1;";
@@ -290,7 +361,9 @@ void DictionaryManager::addWord(const std::string &word) {
 }
 
 void DictionaryManager::removeWord(const std::string &word) {
-    if (!pImpl->db_) return;
+    if (!pImpl->db_) {
+        throw std::runtime_error("Cannot remove word: Database is not connected.");
+    }
     sqlite3_stmt *stmt;
     const char *sql = "DELETE FROM words WHERE word = ?;";
     if (sqlite3_prepare_v2(pImpl->db_, sql, -1, &stmt, NULL) == SQLITE_OK) {
@@ -319,7 +392,10 @@ std::vector<std::string> DictionaryManager::findWords(const std::string &input, 
 }
 
 int DictionaryManager::getWordFrequency(const std::string &word) {
-    if (!pImpl->db_) return -1;
+    if (!pImpl->db_){
+        // Returning -1 is a reasonable contract for "not found or error"
+        return -1;
+    }
     sqlite3_stmt *stmt;
     const char *sql = "SELECT frequency FROM words WHERE word = ?;";
     int frequency = -1;
@@ -334,7 +410,10 @@ int DictionaryManager::getWordFrequency(const std::string &word) {
 }
 
 bool DictionaryManager::updateWordFrequency(const std::string &word, int frequency) {
-    if (!pImpl->db_) return false;
+    if (!pImpl->db_) {
+        // Returning false for failure is acceptable here, but a throw would be more consistent
+        return false;
+    }
     sqlite3_stmt *stmt;
     const char *sql = "UPDATE words SET frequency = ? WHERE word = ?;";
     if (sqlite3_prepare_v2(pImpl->db_, sql, -1, &stmt, NULL) != SQLITE_OK) {
@@ -388,7 +467,9 @@ std::vector<std::pair<std::string, int>> DictionaryManager::searchWords(const st
 }
 
 void DictionaryManager::beginTransaction() {
-    if (!pImpl->db_) return;
+    if (!pImpl->db_) {
+        throw std::runtime_error("Cannot begin transaction: Database is not connected.");
+    }
     char *zErrMsg = 0;
     if (sqlite3_exec(pImpl->db_, "BEGIN TRANSACTION;", NULL, 0, &zErrMsg) != SQLITE_OK) {
         std::string error = "SQL error: " + std::string(zErrMsg);
@@ -398,7 +479,9 @@ void DictionaryManager::beginTransaction() {
 }
 
 void DictionaryManager::commitTransaction() {
-    if (!pImpl->db_) return;
+    if (!pImpl->db_) {
+        throw std::runtime_error("Cannot commit transaction: Database is not connected.");
+    }
     char *zErrMsg = 0;
     if (sqlite3_exec(pImpl->db_, "COMMIT;", NULL, 0, &zErrMsg) != SQLITE_OK) {
         std::string error = "SQL error: " + std::string(zErrMsg);
@@ -408,7 +491,11 @@ void DictionaryManager::commitTransaction() {
 }
 
 void DictionaryManager::rollbackTransaction() {
-    if (!pImpl->db_) return;
+    if (!pImpl->db_) {
+        // No throw here, as rollback is often called in a catch block.
+        // Failing to rollback is not usually a critical failure.
+        return;
+    }
     sqlite3_exec(pImpl->db_, "ROLLBACK;", NULL, 0, NULL);
 }
 
@@ -447,12 +534,11 @@ public:
     std::string readFileContent(const std::string& filename) {
         fs::path fullPath = dataDir_ / filename;
         if (!fs::exists(fullPath)) {
-            std::cerr << "Could not locate: " << fullPath << std::endl;
-            return {};
+            throw std::runtime_error("Could not locate critical data file: " + fullPath.string());
         }
         std::ifstream file(fullPath);
         if (!file.is_open()) {
-            return {};
+            throw std::runtime_error("Could not open critical data file: " + fullPath.string());
         }
         std::stringstream buffer;
         buffer << file.rdbuf();
@@ -687,6 +773,9 @@ std::string Transliteration::Impl::applySmartCorrection(const std::string &input
         char ec_1 = tolower(word[word.length() - 2]);
         char ec_2 = tolower(word[word.length() - 3]);
         char ec_3 = word.length() > 3 ? tolower(word[word.length() - 4]) : '\0';
+
+        // Corrects a word-final 'y' (when not a vowel) to 'ee' for a long vowel sound.
+        // Example: User types "gunDy" which might be intended as "gunDee" for गुण्डी.
         if (!isVowel(ec_0) && ec_0 == 'y') {
             word = word.substr(0, word.length() - 1) + "ee";
         } else if (!(ec_0 == 'a' && ec_1 == 'h' && ec_2 == 'h') &&
@@ -695,15 +784,27 @@ std::string Transliteration::Impl::applySmartCorrection(const std::string &input
                    !(ec_0 == 'a' && ec_1 == 'r' &&
                      ((ec_2 == 'd' && ec_3 == 'n') ||
                       (ec_2 == 't' && ec_3 == 'n')))) {
+            // This is a heuristic for schwa addition. It appends an 'a' if the word
+            // ends in a consonant that is likely to have an explicit 'a' sound.
+            // Example: "ram" becomes "rama" (राम), but it avoids this for complex conjuncts
+            // or nasalizations where the 'a' is often silent.
             if (ec_0 == 'a' && (ec_1 == 'm' || (!isVowel(ec_1) && !isVowel(ec_3) &&
                                                 ec_1 != 'y' && ec_2 != 'e'))) {
                 word += "a";
             }
         }
+
+        // Corrects a short 'i' at the end of a word to a long 'ee'.
+        // This handles a common user mistake where they type 'i' for the 'ई' sound.
+        // Example: The user types "pani" (पनि), which is often intended to be "panee" (पानी).
+        // We specifically avoid this for 'rri' ('ऋ') sequences.
         if (ec_0 == 'i' && !isVowel(ec_1) && !(ec_1 == 'r' && ec_2 == 'r')) {
             word = word.substr(0, word.length() - 1) + "ee";
         }
     }
+
+    // Changes 'n' to 'ng' before velar consonants (k, g) to produce the correct nasal sound (ङ).
+    // Example: "ank" is corrected to "angk" (अङ्क).
     for (size_t i = 0; i < word.length(); ++i) {
         if (tolower(word[i]) == 'n' && i > 0 && i + 1 < word.length()) {
             char next_char = tolower(word[i + 1]);
@@ -727,6 +828,8 @@ std::string Transliteration::Impl::applySmartCorrection(const std::string &input
   }
   */
 
+    // This rule is to handle gemination (doubling) of 'g' in 'ng' clusters
+    // when followed by a vowel, approximating sounds like in "sanggha" (सङ्घ).
     size_t pos_ng = word.find("ng");
     while (pos_ng != std::string::npos) {
         if (pos_ng >= 2 && pos_ng + 2 < word.length() &&
@@ -737,13 +840,20 @@ std::string Transliteration::Impl::applySmartCorrection(const std::string &input
             pos_ng = word.find("ng", pos_ng + 1);
         }
     }
+
+    // Handles conversion of 'n' to the correct nasal consonant based on the following character.
     for (size_t i = 0; i < word.size(); ++i) {
         if (word[i] == 'n' && i + 1 < word.size()) {
             char next = word[i + 1];
+            // 'n' before a retroflex stop (T, D) becomes a retroflex nasal 'N' (ण).
+            // Example: "ghanTa" -> "ghaNTa" (घन्टा -> घण्टा ).
             if (next == 'T' || next == 'D') {
                 word.replace(i, 1, "N");
                 i++;
-            } else if (next == 'c' && i + 2 < word.size() && word[i + 2] == 'h') {
+            }
+            // 'n' before 'ch' becomes a palatal nasal 'ñ' (ञ्).
+            // Example: "kanchan" -> "kañchan" (कन्चन -> कञ्चन).
+            else if (next == 'c' && i + 2 < word.size() && word[i + 2] == 'h') {
                 if (!(i + 3 < word.size() && word[i + 3] == 'h')) {
                     word.replace(i, 1, "ञ्");
                     i++;
