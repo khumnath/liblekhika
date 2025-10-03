@@ -49,151 +49,172 @@ std::string getLekhikaVersion() {
 
 // ----------------- Character classification -----------------
 inline bool isDevanagariConsonant(UChar32 c) {
+    // Standard consonants and extended consonants
     return (c >= 0x0915 && c <= 0x0939) || (c >= 0x0958 && c <= 0x095F);
 }
 
 inline bool isHalant(UChar32 c) { return c == 0x094D; }
 
+inline bool isNukta(UChar32 c) { return c == 0x093C; }
+
 inline bool isDependentVowelSign(UChar32 c) {
-    return (c >= 0x093E && c <= 0x094C); // Only true matras
+    // Includes all matras
+    return (c >= 0x093E && c <= 0x094C) || (c >= 0x0962 && c <= 0x0963);
 }
 
 inline bool isIndependentVowel(UChar32 c) {
     return (c >= 0x0904 && c <= 0x0914);
 }
+
 inline bool isAnusvaraVisargaChandrabindu(UChar32 c) {
-    return c == 0x0902 || c == 0x0903 || c == 0x0901;
+    // Combining marks that can follow a vowel sound or consonants
+    return c == 0x0901 || c == 0x0902 || c == 0x0903;
 }
+
+inline bool isAvagraha(UChar32 c) { return c == 0x093D; }
 
 inline bool isZWJorZWNJ(UChar32 c) { return c == 0x200C || c == 0x200D; }
 
 inline bool isDigit(UChar32 c) { return (c >= 0x0966 && c <= 0x096F); }
 
-inline bool isDandaOrPunctuation(UChar32 c) { return c == 0x0964 || c == 0x0965 || u_ispunct(c); }
+inline bool isDandaOrPunctuation(UChar32 c) {
+    return c == 0x0964 || c == 0x0965 || u_ispunct(c);
+}
 
 inline bool isAllowedDevanagariChar(UChar32 c) {
-    return (c >= 0x0900 && c <= 0x097F)       // Devanagari
-           || (c >= 0xA8E0 && c <= 0xA8FF)    // Devanagari Extended
+    return (c >= 0x0900 && c <= 0x097F)     // Devanagari Block
+           || (c >= 0xA8E0 && c <= 0xA8FF)  // Devanagari Extended
            || isZWJorZWNJ(c);
 }
 
 // ----------------- Grapheme counting -----------------
 //rejects single-grapheme tokens as they are not considered valid dictionary words in this system
 int graphemeCount(const icu::UnicodeString &u) {
+    if (u.isEmpty()) return 0;
     UErrorCode status = U_ZERO_ERROR;
     std::unique_ptr<icu::BreakIterator> it(
-        icu::BreakIterator::createCharacterInstance(icu::Locale::getDefault(), status)
-        );
-    if (U_FAILURE(status)) return u.length();
+        icu::BreakIterator::createCharacterInstance(icu::Locale::getDefault(), status));
+    if (U_FAILURE(status)) return u.length(); // Fallback
     it->setText(u);
 
     int count = 0;
     for (int32_t p = it->first(); p != icu::BreakIterator::DONE; p = it->next()) {
         count++;
     }
-    return count - 1; // remove extra boundary at end
+    return count > 0 ? count - 1 : 0; // Account for empty string and final boundary
 }
 
+
 // ----------------- Validation -----------------
+
 bool isValidDevanagariWord(const icu::UnicodeString &u) {
     if (u.isEmpty()) return false;
-    if (graphemeCount(u) < 2) return false; // A word should have a minimum of 2 graphemes.
 
-    bool lastWasConsonant = false;
-    bool lastWasHalant = false;
-    bool lastWasVowelSign = false;
-    bool lastWasIndependentVowel = false;
-    bool lastWasValidChar = false; // Used to detect invalid leading ZWJ/ZWNJ
+    if (graphemeCount(u) < 2) return false;
 
-    UChar32 prevChar = 0; // Track previous character for final validation
+    // State machine for validation
+    enum State {
+        START,
+        AFTER_CONSONANT,          // After a consonant or consonant+nukta
+        AFTER_HALANT,             // After a halant
+        AFTER_VOWEL,              // After an independent vowel or consonant+matra
+        AFTER_MODIFIER,           // After Anusvara, Visarga, etc.
+        AFTER_AVAGRAHA
+    };
+
+    State state = START;
 
     for (int32_t i = 0; i < u.length();) {
         UChar32 c = u.char32At(i);
 
-        // Reject any character outside the allowed Devanagari blocks.
         if (!isAllowedDevanagariChar(c)) return false;
-
-        // Reject digits or punctuation.
         if (isDigit(c) || isDandaOrPunctuation(c)) return false;
 
         if (isDevanagariConsonant(c)) {
-            lastWasConsonant = true;
-            lastWasHalant = false;
-            lastWasVowelSign = false;
-            lastWasIndependentVowel = false;
-            lastWasValidChar = true;
+            // A consonant can start a word, follow another consonant,
+            // or follow a vowel/halant to start a new syllable/conjunct.
+            if (state == START || state == AFTER_VOWEL || state == AFTER_HALANT || state == AFTER_MODIFIER || state == AFTER_AVAGRAHA || state == AFTER_CONSONANT) {
+                state = AFTER_CONSONANT;
+            } else {
+                return false;
+            }
+        }
+        else if (isIndependentVowel(c)) {
+            // An independent vowel can start a word or follow a previous syllable.
+            if (state == START || state == AFTER_VOWEL || state == AFTER_MODIFIER || state == AFTER_AVAGRAHA) {
+                state = AFTER_VOWEL;
+            } else {
+                return false;
+            }
         }
         else if (isHalant(c)) {
             // Halant must follow a consonant.
-            if (!lastWasConsonant) return false;
-            lastWasHalant = true;
-            lastWasConsonant = false;
-            lastWasVowelSign = false;
-            lastWasIndependentVowel = false;
-            lastWasValidChar = true;
+            if (state == AFTER_CONSONANT) {
+                state = AFTER_HALANT;
+            } else {
+                return false;
+            }
+        }
+        else if (isNukta(c)) {
+            // Nukta must follow a consonant. The result is still treated as a consonant.
+            if (state == AFTER_CONSONANT) {
+                state = AFTER_CONSONANT; // State doesn't change
+            } else {
+                return false;
+            }
         }
         else if (isDependentVowelSign(c)) {
-            // Vowel sign must follow a consonant not modified by halant or another matra.
-            if (!lastWasConsonant || lastWasHalant || lastWasVowelSign) return false;
-            lastWasVowelSign = true;
-            lastWasConsonant = false;
-            lastWasHalant = false;
-            lastWasIndependentVowel = false;
-            lastWasValidChar = true;
-        }
-        else if (isIndependentVowel(c)) {
-            lastWasIndependentVowel = true;
-            lastWasConsonant = false;
-            lastWasHalant = false;
-            lastWasVowelSign = false;
-            lastWasValidChar = true;
+            // A matra (dependent vowel) must follow a consonant.
+            if (state == AFTER_CONSONANT) {
+                state = AFTER_VOWEL;
+            } else {
+                return false;
+            }
         }
         else if (isAnusvaraVisargaChandrabindu(c)) {
-            // These must follow a vowel, consonant, or matra.
-            if (!(lastWasConsonant || lastWasVowelSign || lastWasIndependentVowel)) return false;
-            lastWasConsonant = false;
-            lastWasHalant = false;
-            lastWasVowelSign = false;
-            lastWasIndependentVowel = false;
-            lastWasValidChar = true;
+            // These modifiers must follow a character with a vowel sound.
+            if (state == AFTER_CONSONANT || state == AFTER_VOWEL) {
+                state = AFTER_MODIFIER;
+            } else {
+                return false;
+            }
+        }
+        else if (isAvagraha(c)) {
+            // Avagraha(ऽ) typically follows a vowel sound.
+            if (state == AFTER_CONSONANT || state == AFTER_VOWEL || state == AFTER_MODIFIER) {
+                state = AFTER_AVAGRAHA;
+            } else {
+                return false;
+            }
         }
         else if (isZWJorZWNJ(c)) {
-            // ZWJ/ZWNJ must not be the first character.
-            if (!lastWasValidChar) return false;
-
-            // ZWJ after halant is valid (used for ligature formation).
-            // Do not reset state flags.
-            lastWasValidChar = true;
+            // ZWJ/ZWNJ cannot be the first character.
+            if (state == START) {
+                return false;
+            }
+        }
+        else {
+            return false;
         }
 
-        prevChar = c;
         i += U16_LENGTH(c);
     }
 
-    // Final character validation.
-    if (u.length() > 0) {
-        int32_t lastCharIndex = u.length();
-        U16_BACK_1(u.getBuffer(), 0, lastCharIndex);
-        UChar32 lastChar = u.char32At(lastCharIndex);
-
-        // Reject if word ends in ZWJ or ZWNJ.
-        if (isZWJorZWNJ(lastChar)) return false;
-
-        // Allow trailing halant only if preceded by a consonant.
-        if (isHalant(lastChar)) {
-            if (!isDevanagariConsonant(prevChar)) return false;
-        }
+    // Final Validation
+    int32_t lastCharIndex = u.length();
+    U16_BACK_1(u.getBuffer(), 0, lastCharIndex);
+    UChar32 lastChar = u.char32At(lastCharIndex);
+    if (isZWJorZWNJ(lastChar)) {
+        return false;
     }
 
-    return true;
+    return state == AFTER_CONSONANT || state == AFTER_VOWEL || state == AFTER_MODIFIER || state == AFTER_HALANT || state == AFTER_AVAGRAHA;
 }
 
 // ----------------- Overload for std::string -----------------
 bool isValidDevanagariWord(const std::string &s) {
     return isValidDevanagariWord(icu::UnicodeString::fromUTF8(s));
 }
-
-
 
 #ifdef HAVE_SQLITE3
 // =============================================================================//
