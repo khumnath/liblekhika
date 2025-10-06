@@ -34,7 +34,7 @@ world123
 १२३
 शब्द१२३
 
-# Contains punctuation
+# Contains punctuation (should learn words without punctuation mark)
 
 राम।
 प्रश्न?
@@ -50,6 +50,7 @@ world123
 ाघर
 क्ा
 किी
+अजमोनलार्इ
 
 # Orphaned anusvara/visarga/chandrabindu
 

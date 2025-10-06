@@ -105,8 +105,30 @@ int graphemeCount(const icu::UnicodeString &u) {
 }
 
 
-// ----------------- Validation -----------------
+// Overload for icu::UnicodeString
+icu::UnicodeString sanitizeDevanagariWord(const icu::UnicodeString& u) {
+    icu::UnicodeString sanitized;
+    for (int32_t i = 0; i < u.length(); ) {
+        UChar32 c = u.char32At(i);
+        // Keep the character ONLY if it's NOT punctuation
+        if (!isDandaOrPunctuation(c)) {
+            sanitized.append(c);
+        }
+        i += U16_LENGTH(c);
+    }
+    return sanitized;
+}
 
+// Overload for std::string for convenience
+std::string sanitizeDevanagariWord(const std::string& s) {
+    icu::UnicodeString ustr = icu::UnicodeString::fromUTF8(s);
+    icu::UnicodeString sanitizedUstr = sanitizeDevanagariWord(ustr);
+    std::string sanitizedStr;
+    sanitizedUstr.toUTF8String(sanitizedStr);
+    return sanitizedStr;
+}
+
+// ----------------- Validation -----------------
 bool isValidDevanagariWord(const icu::UnicodeString &u) {
     if (u.isEmpty()) return false;
 
@@ -115,10 +137,11 @@ bool isValidDevanagariWord(const icu::UnicodeString &u) {
     // State machine for validation
     enum State {
         START,
-        AFTER_CONSONANT,          // After a consonant or consonant+nukta
-        AFTER_HALANT,             // After a halant
-        AFTER_VOWEL,              // After an independent vowel or consonant+matra
-        AFTER_MODIFIER,           // After Anusvara, Visarga, etc.
+        AFTER_CONSONANT,           // After a consonant or consonant+nukta
+        AFTER_HALANT,              // After a halant
+        AFTER_INDEPENDENT_VOWEL,   // After a standalone vowel like अ, आ
+        AFTER_SYLLABLE_WITH_MATRA, // After a consonant+matra like का, कि
+        AFTER_MODIFIER,            // After Anusvara, Visarga, etc.
         AFTER_AVAGRAHA
     };
 
@@ -133,16 +156,17 @@ bool isValidDevanagariWord(const icu::UnicodeString &u) {
         if (isDevanagariConsonant(c)) {
             // A consonant can start a word, follow another consonant,
             // or follow a vowel/halant to start a new syllable/conjunct.
-            if (state == START || state == AFTER_VOWEL || state == AFTER_HALANT || state == AFTER_MODIFIER || state == AFTER_AVAGRAHA || state == AFTER_CONSONANT) {
+            if (state == START || state == AFTER_INDEPENDENT_VOWEL || state == AFTER_SYLLABLE_WITH_MATRA || state == AFTER_HALANT || state == AFTER_MODIFIER || state == AFTER_AVAGRAHA || state == AFTER_CONSONANT) {
                 state = AFTER_CONSONANT;
             } else {
                 return false;
             }
         }
         else if (isIndependentVowel(c)) {
-            // An independent vowel can start a word or follow a previous syllable.
-            if (state == START || state == AFTER_VOWEL || state == AFTER_MODIFIER || state == AFTER_AVAGRAHA) {
-                state = AFTER_VOWEL;
+            // An independent vowel can start a word or follow another independent vowel.
+            // It cannot follow a consonant+matra syllable or a halant.
+            if (state == START || state == AFTER_INDEPENDENT_VOWEL || state == AFTER_MODIFIER || state == AFTER_AVAGRAHA) {
+                state = AFTER_INDEPENDENT_VOWEL;
             } else {
                 return false;
             }
@@ -166,14 +190,14 @@ bool isValidDevanagariWord(const icu::UnicodeString &u) {
         else if (isDependentVowelSign(c)) {
             // A matra (dependent vowel) must follow a consonant.
             if (state == AFTER_CONSONANT) {
-                state = AFTER_VOWEL;
+                state = AFTER_SYLLABLE_WITH_MATRA;
             } else {
                 return false;
             }
         }
         else if (isAnusvaraVisargaChandrabindu(c)) {
             // These modifiers must follow a character with a vowel sound.
-            if (state == AFTER_CONSONANT || state == AFTER_VOWEL) {
+            if (state == AFTER_CONSONANT || state == AFTER_INDEPENDENT_VOWEL || state == AFTER_SYLLABLE_WITH_MATRA) {
                 state = AFTER_MODIFIER;
             } else {
                 return false;
@@ -181,15 +205,19 @@ bool isValidDevanagariWord(const icu::UnicodeString &u) {
         }
         else if (isAvagraha(c)) {
             // Avagraha(ऽ) typically follows a vowel sound.
-            if (state == AFTER_CONSONANT || state == AFTER_VOWEL || state == AFTER_MODIFIER) {
+            if (state == AFTER_CONSONANT || state == AFTER_INDEPENDENT_VOWEL || state == AFTER_SYLLABLE_WITH_MATRA || state == AFTER_MODIFIER) {
                 state = AFTER_AVAGRAHA;
             } else {
                 return false;
             }
         }
         else if (isZWJorZWNJ(c)) {
-            // ZWJ/ZWNJ cannot be the first character.
-            if (state == START) {
+            // A ZWJ/ZWNJ is only meaningful after a halant to control ligation.
+            // We reject it in all other "orphaned" contexts.
+            if (state == AFTER_HALANT) {
+                // The state does not change. We are still in an "after halant"
+                // context, but now with a joiner hint.
+            } else {
                 return false;
             }
         }
@@ -208,8 +236,9 @@ bool isValidDevanagariWord(const icu::UnicodeString &u) {
         return false;
     }
 
-    return state == AFTER_CONSONANT || state == AFTER_VOWEL || state == AFTER_MODIFIER || state == AFTER_HALANT || state == AFTER_AVAGRAHA;
+    return state == AFTER_CONSONANT || state == AFTER_INDEPENDENT_VOWEL || state == AFTER_SYLLABLE_WITH_MATRA || state == AFTER_MODIFIER || state == AFTER_HALANT || state == AFTER_AVAGRAHA;
 }
+
 
 // ----------------- Overload for std::string -----------------
 bool isValidDevanagariWord(const std::string &s) {
