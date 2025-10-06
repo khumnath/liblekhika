@@ -17,12 +17,12 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>
  *******************************************************************/
 #pragma once
-#include <memory>
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 
-// Forward declare ICU's UnicodeString to avoid including the full ICU header
+// Forward declare ICU's UnicodeString to avoid including the full header here
 namespace U_ICU_NAMESPACE {
 class UnicodeString;
 }
@@ -39,7 +39,7 @@ std::string getLekhikaVersion();
 
 /**
  * @brief Validates if a string is a well-formed Devanagari word based on orthographic rules.
- * @param u The ICU UnicodeString to validate.
+ * @param u The ICU UnicodeString to validate. This is the core validation logic.
  * @return True if the word is valid, false otherwise.
  */
 bool isValidDevanagariWord(const U_ICU_NAMESPACE::UnicodeString &u);
@@ -139,9 +139,9 @@ public:
     bool updateWordFrequency(const std::string &word, int frequency);
 
     /**
-     * @brief Reads a text file, sanitizes and validates the words, and learns them.
+     * @brief Reads a text file, extracts, sanitizes, validates, and learns valid words.
      * @param filePath The path to the UTF-8 encoded text file.
-     * @return The total number of new words learned from the file.
+     * @return The total number of words learned from the file.
      */
     long learnFromFile(const std::string& filePath);
 
@@ -172,14 +172,20 @@ public:
     /** @brief Rolls back the current database transaction. */
     void rollbackTransaction();
 
-    /** @brief Sets the maximum number of suggestions to return in findWords. */
-    void setSuggestionLimit(int limit);
-    /** @brief Gets the current suggestion limit. */
-    int getSuggestionLimit() const;
+    /** * @brief Sets the maximum number of suggestions to return.
+     * @param limit The new suggestion limit.
+     */
+    void setSuggestionLimit(int limit) { suggestionLimit_ = limit; }
+
+    /** * @brief Gets the current suggestion limit.
+     * @return The current suggestion limit.
+     */
+    int getSuggestionLimit() const { return suggestionLimit_; }
 
 private:
     class Impl;
     std::unique_ptr<Impl> pImpl;
+    int suggestionLimit_ = 10;
 };
 #endif
 
